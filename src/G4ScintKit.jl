@@ -39,7 +39,7 @@ export extent, face_center, center_pos
 
 # --- geometry: material-file resolution ---
 include("geometry/materials.jl")
-export ResolvedMaterials
+export ResolvedMaterials, fiber_cross_section
 
 # --- bash-pipeline run wrappers (depend on GeometryManifest) ---
 include("run/g4run.jl")
@@ -47,7 +47,7 @@ export run_simulation, run_visu
 
 # --- geometry: high-level DetectorSpec interface (abstract base + build_manifest) ---
 include("geometry/specs/detector_spec.jl")
-export DetectorSpec, build_manifest
+export DetectorSpec, LengthQ, build_manifest, strip_units
 
 # --- geometry: pre-flight validation ---
 include("geometry/geometry_check.jl")
