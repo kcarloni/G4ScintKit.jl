@@ -1,0 +1,29 @@
+name = "G4ScintKit"
+uuid = "3c1ced9a-78ec-4d11-bfdd-b5ea336cfd88"
+
+[deps]
+AstroParticleUnits = "7ef70e66-125c-4f32-8552-6b4d78ac8c93"
+Dubins = "c4b27c1d-289f-5655-aa69-f096df7d9e2b"
+HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+Rotations = "6038ab10-8711-5258-84ad-4b1120ba62dc"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+StructArrayTables = "ca251ab3-b933-4b3b-914d-871076b2288a"
+
+[sources]
+AstroParticleUnits = {url = "https://github.com/kcarloni/AstroParticleUnits.jl.git"}
+StructArrayTables = {url = "https://github.com/kcarloni/StructArrayTables.jl.git"}
+
+[compat]
+Dubins = "1.2.0"
+LinearAlgebra = "1.12.0"
+Printf = "1.11.0"
+Rotations = "1.7.1"
+StaticArrays = "1.9.18"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
