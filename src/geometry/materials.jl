@@ -63,7 +63,7 @@ const _CEMENT_FILES = Dict(
 """Default GODDESS package root — `goddess-package/` sits beside `G4ScintKit.jl/`."""
 # this file lives at src/geometry/ — three levels below the G4ScintKit project
 # root, where goddess-package/ sits beside the G4ScintKit.jl package.
-_default_goddess_root() =
+default_goddess_root() =
     normpath(joinpath(@__DIR__, "..", "..", "..", "goddess-package"))
 
 # Resolve a material abbreviation to the absolute .properties path, matching
