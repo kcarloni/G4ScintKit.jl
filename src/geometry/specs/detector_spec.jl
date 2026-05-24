@@ -13,7 +13,16 @@
 
 """Length quantity type for `DetectorSpec` fields — forces inputs to a length
 dimension (any length unit; converted to mm on construction)."""
-const LengthQ = typeof(1.0u"mm")
+const LengthQ  = typeof(1.0u"mm")
+
+"""Energy quantity (e.g. column types on the readback side)."""
+const EnergyQ  = typeof(1.0u"MeV")
+
+"""Time quantity (e.g. column types on the readback side)."""
+const TimeQ    = typeof(1.0u"ns")
+
+"""Voltage quantity (e.g. column types on the readback side)."""
+const VoltageQ = typeof(1.0u"V")
 
 # ---------------------------------------------------------------------------
 #  Detector designs

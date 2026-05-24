@@ -11,11 +11,19 @@ using Rotations
 using StaticArrays
 using StructArrayTables
 
-# --- output readers (inactive) ---
-# include("output/hdf5.jl")
-# export h5display, h5read
-# include("output/read.jl")
-# export read_sipm_voltage_trace
+# --- output readers ---
+# Public surface: `load(outdir)` reads the C++ HDF5 output into a NamedTuple
+# of StructArrays, attaching units and concatenating across runs/files.
+# `h5read(StructArray, file, group)` is the lower-level ad-hoc reader for
+# arbitrary groups; `read_sipm_voltage_trace` is a legacy typed reader kept
+# for compatibility.
+include("output/hdf5.jl")
+export h5display, h5read
+include("output/columns.jl")
+include("output/load.jl")
+export load, available_groups, ALL_GROUPS, SimulationOutput
+include("output/read.jl")
+export read_sipm_voltage_trace
 
 # --- geometry: low-level manifest representation ---
 include("geometry/manifest.jl")
@@ -39,15 +47,15 @@ export extent, face_center, center_pos
 
 # --- geometry: material-file resolution ---
 include("geometry/materials.jl")
-export ResolvedMaterials, fiber_cross_section
-
-# --- bash-pipeline run wrappers (depend on GeometryManifest) ---
-include("run/g4run.jl")
-export run_simulation, run_visu
+export ResolvedMaterials, fiber_cross_section, default_goddess_root
 
 # --- geometry: high-level DetectorSpec interface (abstract base + build_manifest) ---
 include("geometry/specs/detector_spec.jl")
-export DetectorSpec, LengthQ, build_manifest, strip_units
+export DetectorSpec, LengthQ, EnergyQ, TimeQ, VoltageQ, build_manifest, strip_units
+
+# --- bash-pipeline run wrappers (depend on GeometryManifest, DetectorSpec) ---
+include("run/g4run.jl")
+export run_simulation, run_visu
 
 # --- geometry: pre-flight validation ---
 include("geometry/geometry_check.jl")
@@ -62,14 +70,14 @@ export fiber_entries, route_path
 include("geometry/builders/dubins.jl")
 export route_fiber
 
-# --- geometry builders: Layer-1 ManifestBuilder ---
+# --- geometry builders: ManifestBuilder ---
 include("geometry/builders/manifest_builder.jl")
 export ManifestBuilder
 export add_scint!, add_fiber_straight!, add_fiber_bent!, add_fiber_routed!
 export add_fiber_path!, add_wrapping!, add_sipm!
 export new_loop_id!, casing_from_extent, add_casing!, to_manifest
 
-# --- geometry builders: Layer-2 composite assembly helpers ---
+# --- geometry builders: composite assembly helpers ---
 include("geometry/builders/detector_assembly.jl")
 export bar_lattice_spacing, add_scint_row!
 export add_inline_sipm!, add_bundle_sipm!, bundle_fiber_endpoints
