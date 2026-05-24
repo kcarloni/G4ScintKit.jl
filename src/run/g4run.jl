@@ -7,7 +7,7 @@
 #
 # A geometry can be supplied directly as a `GeometryManifest` (see manifest.jl)
 # via the `manifest` keyword; it is serialised to disk and passed to run.sh as
-# `--manifest <file>`, which overrides the built-in `--setup` geometries.
+# `--manifest <file>` (geometry input is now mandatory).
 
 """Default G4ScintKit project root (the parent of the G4ScintKit.jl package)."""
 # this file lives at src/run/ — three levels below the G4ScintKit project root.
@@ -52,7 +52,7 @@ the G4ScintKit.jl package, so callers normally need not set it).
   - a `GeometryManifest` is serialised to `joinpath(outdir, "geometry.manifest")`
     — persisted alongside the output as provenance — and passed to run.sh;
   - an `AbstractString` is treated as an existing manifest file path;
-  - `nothing` (default) leaves run.sh to use its built-in `--setup` geometry.
+  - `nothing` is no longer accepted: pass a `GeometryManifest` or a path. If `nothing`, run.sh will fail with a clear error.
 
 Any remaining keyword arguments are forwarded to `run.sh` as `--key value`
 pairs (e.g. `nevents=10`, `injparticle="mu-"`, `setup="B2"`).
@@ -73,11 +73,23 @@ function run_simulation(; outdir::String,
     setup = joinpath(projectdir, "bash_scripts", "setup_paths.sh")
     # Pass run.sh arguments as bash positional parameters ($2…) rather than
     # interpolating them into the -c script, so values may contain spaces.
-    script = raw"""source "$1" && source "$SIMDIR/run.sh" "${@:2}" """
+    # If the user hasn't created a local setup_paths.sh, fall back to the
+    # committed .example (see bash_scripts/setup_paths.sh.example).
+    script = raw"""
+        PATHS="$1"
+        [[ -f "$PATHS" ]] || PATHS="${PATHS}.example"
+        source "$PATHS" && source "$SIMDIR/run.sh" "${@:2}"
+    """
     run(`bash -c $script g4scint $setup $args`)
 
     return outdir
 end
+
+run_simulation(manifest::GeometryManifest; outdir::String, kwargs...) =
+    run_simulation(; outdir, manifest, kwargs...)
+
+run_simulation(spec::DetectorSpec; outdir::String, kwargs...) =
+    run_simulation(build_manifest(spec); outdir, kwargs...)
 
 """
     run_visu(; projectdir=_default_projectdir(), manifest=nothing, kwargs...) -> outdir
@@ -105,3 +117,7 @@ function run_visu(; projectdir::String = _default_projectdir(),
 
     return joinpath(projectdir, "output", "visu")
 end
+
+run_visu(manifest::GeometryManifest; kwargs...) = run_visu(; manifest, kwargs...)
+
+run_visu(spec::DetectorSpec; kwargs...) = run_visu(build_manifest(spec); kwargs...)
