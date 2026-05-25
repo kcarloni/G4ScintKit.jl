@@ -53,6 +53,15 @@ export ResolvedMaterials, fiber_cross_section, default_goddess_root
 include("geometry/specs/detector_spec.jl")
 export DetectorSpec, LengthQ, EnergyQ, TimeQ, VoltageQ, build_manifest, strip_units
 
+# --- geometry: g4sipm model registry (depends on LengthQ) ---
+include("geometry/sipms.jl")
+export SipmModelInfo, SIPM_MODELS, sipm_model_info, sipm_edge_length
+
+# --- particle-list CSV writer (mirrors C++ ParticleListSource) ---
+# Included before g4run.jl so run_simulation can dispatch on a Vector of entries.
+include("run/particle_list.jl")
+export ParticleListEntry, write_particle_list
+
 # --- bash-pipeline run wrappers (depend on GeometryManifest, DetectorSpec) ---
 include("run/g4run.jl")
 export run_simulation, run_visu

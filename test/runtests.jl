@@ -229,4 +229,167 @@ end
     end
 end
 
+@testset "write_particle_list — round-trip CSV" begin
+    entries = [
+        ParticleListEntry(; run_id=0, event_id=0, pdg=13,
+            t=1.5u"ns", pos=(0.0u"mm", 200.0u"mm", -1.0u"cm"),
+            ekin=3u"GeV", dir=(0.0, -1.0, 0.0)),
+        # Second primary in the same (run_id, event_id) — multi-particle event.
+        ParticleListEntry(; run_id=0, event_id=0, pdg=-11,
+            t=1.5u"ns", pos=(0.0u"mm", 200.0u"mm", -1.0u"cm"),
+            ekin=50u"MeV", dir=(0.0, -1.0, 0.0)),
+        ParticleListEntry(; run_id=1, event_id=7, pdg=22,
+            t=0.0u"ns", pos=(1.0u"m", 0.0u"mm", 0.0u"mm"),
+            ekin=1.25u"MeV", dir=(1.0, 0.0, 0.0)),
+    ]
+    path = tempname() * ".csv"
+    try
+        write_particle_list(path, entries)
+        lines = filter(!isempty, readlines(path))
+        # 1 header + 3 entries
+        @test length(lines) == 4
+        @test startswith(lines[1], "run_id,event_id,pdg")
+
+        # Parse a data row and compare to the source entry in C++ units.
+        cols = split(lines[2], ',')
+        @test length(cols) == 11
+        @test parse(Int,     cols[1]) == 0           # run_id
+        @test parse(Int,     cols[2]) == 0           # event_id
+        @test parse(Int,     cols[3]) == 13          # pdg
+        @test parse(Float64, cols[4]) == 1.5         # t_ns
+        @test parse(Float64, cols[5]) == 0.0         # x_mm
+        @test parse(Float64, cols[6]) == 200.0       # y_mm
+        @test parse(Float64, cols[7]) == -10.0       # z_mm (1 cm)
+        @test parse(Float64, cols[8]) == 3000.0      # ekin_MeV (3 GeV)
+        @test parse(Float64, cols[9]) == 0.0         # dx
+        @test parse(Float64, cols[10]) == -1.0       # dy
+        @test parse(Float64, cols[11]) == 0.0        # dz
+
+        # header=false suppresses the leading column-name row.
+        path2 = tempname() * ".csv"
+        write_particle_list(path2, entries; header=false)
+        lines2 = filter(!isempty, readlines(path2))
+        @test length(lines2) == 3
+        @test !startswith(lines2[1], "run_id")
+        rm(path2; force=true)
+    finally
+        rm(path; force=true)
+    end
+end
+
+@testset "SIPM_MODELS — registry + add_sipm! integration" begin
+    # Spot-check the registry: edge_length = cell_pitch * sqrt(n_cells)
+    info = sipm_model_info("hamamatsu-s10362-33-050c")
+    @test info.n_cells == 3600
+    @test info.cell_pitch == 0.05u"mm"
+    @test info.edge_length ≈ 3.0u"mm"
+    @test info.factory === :builtin
+    @test sipm_edge_length("hamamatsu-s12573-100c") ≈ 6.0u"mm"
+    @test sipm_edge_length("generic") ≈ 1.0u"mm"
+
+    # Cross-check the two aliases that have matching .properties files in
+    # g4sipm. If the files exist, parse them and assert agreement with the
+    # registry — catches drift between our table and upstream g4sipm.
+    g4sipm_resources = joinpath(default_goddess_root(), "..", "g4sipm",
+                                "sample", "resources")
+    for (alias, file) in (
+            ("hamamatsu-s10362-11-100c", "hamamatsu-s10362-11-100c.properties"),
+            ("hamamatsu-s10362-33-050c", "hamamatsu-s10362-33-050c.properties"))
+        path = joinpath(g4sipm_resources, file)
+        isfile(path) || continue
+        n_cells = 0
+        cell_pitch_mm = 0.0
+        for line in eachline(path)
+            startswith(line, "numberOfCells:") &&
+                (n_cells = parse(Int, strip(split(line, ':')[2])))
+            if startswith(line, "cellPitch:")
+                # value form: "0.05 * mm"
+                rhs = strip(split(line, ':')[2])
+                num, _, unit = split(rhs)
+                @assert unit == "mm" "test only handles cellPitch in mm"
+                cell_pitch_mm = parse(Float64, num)
+            end
+        end
+        info = sipm_model_info(alias)
+        @test info.n_cells == n_cells
+        @test ustrip(u"mm", info.cell_pitch) ≈ cell_pitch_mm
+    end
+
+    # Unknown alias errors with the valid list in the message.
+    @test_throws ErrorException sipm_model_info("not-a-real-sipm")
+
+    # add_sipm! integration: model alone derives edge_length and is serialised.
+    b = ManifestBuilder(_SmokeSpec())
+    s = add_scint!(b; name="s", dims=(50.0, 10.0, 1000.0))
+    f = add_fiber_straight!(b; name="f", mother="s",
+            start=G4Coordinate((0.0, 0.0, 500.0), "s"),
+            stop =G4Coordinate((0.0, 0.0,-500.0), "s"))
+    sp = add_sipm!(b; name="sp", fiber="f",
+            face_dir=(0.0, 0.0, -1.0),
+            rel_pos=G4Coordinate((0.0, 0.0, 520.0), "world"),
+            model="hamamatsu-s10362-33-050c",
+            coupling_normal=(0.0, 0.0, -1.0),
+            coupling_pos=G4Coordinate((0.0, 0.0, 0.0), "f"),
+            coupling_width=0.25)
+    @test sp.model == "hamamatsu-s10362-33-050c"
+    @test sp.edge_length ≈ 3.0    # mm
+
+    m = to_manifest(b)
+    txt = sprint(write_manifest, m)
+    @test occursin("model=hamamatsu-s10362-33-050c", txt)
+
+    # Default add_sipm! (no model) does NOT emit a `model=` token, so
+    # existing manifests stay byte-identical.
+    b2 = ManifestBuilder(_SmokeSpec())
+    add_scint!(b2; name="s", dims=(50.0, 10.0, 1000.0))
+    add_fiber_straight!(b2; name="f", mother="s",
+            start=G4Coordinate((0.0, 0.0, 500.0), "s"),
+            stop =G4Coordinate((0.0, 0.0,-500.0), "s"))
+    add_sipm!(b2; name="sp", fiber="f", face_dir=(0.0, 0.0, -1.0),
+            rel_pos=G4Coordinate((0.0, 0.0, 520.0), "world"),
+            edge_length=2.0, coupling_normal=(0.0, 0.0, -1.0),
+            coupling_pos=G4Coordinate((0.0, 0.0, 0.0), "f"),
+            coupling_width=0.25)
+    txt2 = sprint(write_manifest, to_manifest(b2))
+    @test !occursin("model=", txt2)
+
+    # Both model and edge_length: succeeds when they agree (so callers can
+    # pass an unconditional edge_length alongside model), errors on mismatch.
+    b3 = ManifestBuilder(_SmokeSpec())
+    add_scint!(b3; name="s", dims=(50.0, 10.0, 1000.0))
+    add_fiber_straight!(b3; name="f", mother="s",
+            start=G4Coordinate((0.0, 0.0, 500.0), "s"),
+            stop =G4Coordinate((0.0, 0.0,-500.0), "s"))
+    sp_agree = add_sipm!(b3; name="sp_a", fiber="f",
+            face_dir=(0.0, 0.0, -1.0),
+            rel_pos=G4Coordinate((0.0, 0.0, 520.0), "world"),
+            model="hamamatsu-s10362-33-050c", edge_length=3.0u"mm",
+            coupling_normal=(0.0, 0.0, -1.0),
+            coupling_pos=G4Coordinate((0.0, 0.0, 0.0), "f"),
+            coupling_width=0.25)
+    @test sp_agree.edge_length ≈ 3.0
+    @test sp_agree.model == "hamamatsu-s10362-33-050c"
+
+    @test_throws ErrorException add_sipm!(b3; name="sp_b", fiber="f",
+            face_dir=(0.0, 0.0, -1.0),
+            rel_pos=G4Coordinate((0.0, 0.0, 520.0), "world"),
+            model="generic", edge_length=2.0,        # 1.0 mm vs 2.0 mm — mismatch
+            coupling_normal=(0.0, 0.0, -1.0),
+            coupling_pos=G4Coordinate((0.0, 0.0, 0.0), "f"),
+            coupling_width=0.25)
+
+    # Neither model nor edge_length → error.
+    b4 = ManifestBuilder(_SmokeSpec())
+    add_scint!(b4; name="s", dims=(50.0, 10.0, 1000.0))
+    add_fiber_straight!(b4; name="f", mother="s",
+            start=G4Coordinate((0.0, 0.0, 500.0), "s"),
+            stop =G4Coordinate((0.0, 0.0,-500.0), "s"))
+    @test_throws ErrorException add_sipm!(b4; name="sp", fiber="f",
+            face_dir=(0.0, 0.0, -1.0),
+            rel_pos=G4Coordinate((0.0, 0.0, 520.0), "world"),
+            coupling_normal=(0.0, 0.0, -1.0),
+            coupling_pos=G4Coordinate((0.0, 0.0, 0.0), "f"),
+            coupling_width=0.25)
+end
+
 end  # @testset "G4ScintKit"

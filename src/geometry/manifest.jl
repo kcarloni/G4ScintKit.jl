@@ -62,7 +62,9 @@ Base.@kwdef struct WrapEntry <: PlacementEntry
     cut::Vector{String} = String[]
 end
 
-"""A SiPM photon detector plus its optical coupling to a fibre. Mirrors C++ `SipmEntry`."""
+"""A SiPM photon detector plus its optical coupling to a fibre. Mirrors C++ `SipmEntry`.
+`model` names a g4sipm model alias (see [`SIPM_MODELS`](@ref)); an empty
+`model` means "no g4sipm digitization — use the GODDESS photodetector"."""
 Base.@kwdef struct SipmEntry <: PlacementEntry
     name::String
     ref_volume::String
@@ -74,6 +76,7 @@ Base.@kwdef struct SipmEntry <: PlacementEntry
     coupling_pos::NTuple{3,Float64}
     coupling_width::Float64
     fiber_is_base::Bool = true
+    model::String = ""
 end
 
 """The outer aluminum box + lead sheet, derived from the module bounding box.
@@ -271,6 +274,7 @@ function _write_entry(io::IO, sp::SipmEntry)
     _require_no_space(sp.name, "name")
     _require_no_space(sp.ref_volume, "ref_volume")
     _require_no_space(sp.fiber, "fiber")
+    _require_no_space(sp.model, "model")
     print(io, "SIPM",
         " name=", sp.name,
         " ref_volume=", sp.ref_volume,
@@ -281,8 +285,11 @@ function _write_entry(io::IO, sp::SipmEntry)
         " coupling_normal=", _vecstr(sp.coupling_normal),
         " coupling_pos=", _vecstr(sp.coupling_pos),
         " coupling_width=", _numstr(sp.coupling_width),
-        " fiber_is_base=", _boolstr(sp.fiber_is_base),
-        "\n")
+        " fiber_is_base=", _boolstr(sp.fiber_is_base))
+    # `model` is optional: emitted only when non-empty so existing manifests
+    # (and the C++ reader pre-C2) stay backward-compatible. Empty = no g4sipm.
+    isempty(sp.model) || print(io, " model=", sp.model)
+    print(io, "\n")
 end
 
 function _write_entry(io::IO, c::CasingSpec)

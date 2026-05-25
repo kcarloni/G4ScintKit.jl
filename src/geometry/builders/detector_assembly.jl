@@ -120,8 +120,15 @@ the coupling base instead, build it with [`add_sipm!`](@ref) directly (B2 does
 this).
 """
 function add_inline_sipm!(b::ManifestBuilder; name, fiber::FiberEntry,
-                          edge_length, coupling_width,
+                          coupling_width,
+                          model::AbstractString = "",
+                          edge_length = nothing,
                           sipm_end::Symbol = :stop)
+    if edge_length === nothing
+        isempty(model) && error("add_inline_sipm!: SiPM '$name' needs " *
+            "either `edge_length` or `model`")
+        edge_length = sipm_edge_length(model)
+    end
     edge_length    = _to_mm(edge_length)             # accept unitful lengths
     coupling_width = _to_mm(coupling_width)
     sipm_end in (:start, :stop) || error(
@@ -154,7 +161,8 @@ function add_inline_sipm!(b::ManifestBuilder; name, fiber::FiberEntry,
         edge_length     = edge_length,
         coupling_normal = coupling_normal_local,
         coupling_pos    = G4Coordinate(coupling_pos_local, fiber.name),
-        coupling_width  = coupling_width)
+        coupling_width  = coupling_width,
+        model           = model)
 end
 
 """
@@ -188,11 +196,18 @@ For a single straight fibre, prefer [`add_inline_sipm!`](@ref).
 """
 function add_bundle_sipm!(b::ManifestBuilder; name, anchor_fiber::FiberEntry,
                           endpoints::AbstractVector{G4Coordinate}, face_dir,
-                          edge_length, coupling_width,
+                          coupling_width,
+                          model::AbstractString = "",
+                          edge_length = nothing,
                           sipm_thickness = 0.5u"mm",
                           planarity_tol::Real = 1e-6)
     isempty(endpoints) &&
         error("add_bundle_sipm!: endpoints must be non-empty")
+    if edge_length === nothing
+        isempty(model) && error("add_bundle_sipm!: SiPM '$name' needs " *
+            "either `edge_length` or `model`")
+        edge_length = sipm_edge_length(model)
+    end
 
     # All endpoints must share a reference frame.
     ref = first(endpoints).ref
@@ -248,7 +263,8 @@ function add_bundle_sipm!(b::ManifestBuilder; name, anchor_fiber::FiberEntry,
         edge_length     = edge_length,
         coupling_normal = coupling_normal_local,
         coupling_pos    = G4Coordinate(coupling_pos_local, String(name)),
-        coupling_width  = coupling_width)
+        coupling_width  = coupling_width,
+        model           = model)
 end
 
 """

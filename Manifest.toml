@@ -52,7 +52,7 @@ version = "1.11.0"
 
 [[deps.AstroParticleUnits]]
 deps = ["Corpuscles", "LaTeXStrings", "NaturallyUnitful", "PhysicalConstants", "Unitful", "UnitfulAstro", "UnitfulParsableString"]
-git-tree-sha1 = "75346b59258e8094e6787ccae58cd50e42035a48"
+git-tree-sha1 = "853bdcf71764a8cb682bc2eb4861b543d01d45db"
 repo-rev = "main"
 repo-url = "https://github.com/kcarloni/AstroParticleUnits.jl.git"
 uuid = "7ef70e66-125c-4f32-8552-6b4d78ac8c93"
@@ -69,9 +69,15 @@ uuid = "49dc2e85-a5d0-5ad3-a950-438e2897f1b9"
 version = "0.5.2"
 
 [[deps.CommonSolve]]
-git-tree-sha1 = "78ea4ddbcf9c241827e7035c3a03e2e456711470"
+git-tree-sha1 = "dd91a10d8b8ae06e15706158eaf1a3e87e97b5f5"
 uuid = "38540f10-b2f7-11e9-35d8-d573e4eb0ff2"
-version = "0.2.6"
+version = "0.2.7"
+
+    [deps.CommonSolve.extensions]
+    CommonSolveEnzymeCoreExt = "EnzymeCore"
+
+    [deps.CommonSolve.weakdeps]
+    EnzymeCore = "f151be2c-9106-41f4-ab19-57ee4f262869"
 
 [[deps.Compat]]
 deps = ["TOML", "UUIDs"]

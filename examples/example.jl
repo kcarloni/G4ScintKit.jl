@@ -33,7 +33,7 @@ run_simulation(B3Spec();
     outdir = outdir,
     nevents = 10,
     injparticle = "mu-",
-    injenergy = "3_GeV",         # underscore = space; run.sh substitutes
+    injenergy = 3u"GeV",
     trackphotons = false,
 )
 

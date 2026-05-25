@@ -355,8 +355,9 @@ function add_wrapping!(b::ManifestBuilder; scint, g4name::AbstractString="",
 end
 
 """
-    add_sipm!(b; name, fiber, face_dir, rel_pos::G4Coordinate, edge_length,
-              coupling_normal, coupling_pos::G4Coordinate, coupling_width) -> SipmEntry
+    add_sipm!(b; name, fiber, face_dir, rel_pos::G4Coordinate,
+              coupling_normal, coupling_pos::G4Coordinate, coupling_width,
+              model="", edge_length=nothing) -> SipmEntry
 
 Append a SiPM photon detector and its optical coupling to `fiber`. `rel_pos` is
 a [`G4Coordinate`](@ref) whose frame is the SiPM's reference volume (`"world"`
@@ -364,12 +365,38 @@ or an earlier scintillator). `coupling_pos` is a `G4Coordinate` whose frame is
 the optical coupling's base volume — either `fiber` or the SiPM itself
 (`name`); that choice sets `fiber_is_base`. `face_dir` and `coupling_normal`
 are direction vectors in those respective frames.
+
+`model` is a g4sipm SiPM model alias from [`SIPM_MODELS`](@ref) (empty for
+the GODDESS default photodetector). When `model` is set, `edge_length`
+defaults to that model's die size; pass `edge_length=` explicitly to
+override.
 """
 function add_sipm!(b::ManifestBuilder; name, fiber, face_dir,
-                   rel_pos::G4Coordinate, edge_length, coupling_normal,
-                   coupling_pos::G4Coordinate, coupling_width)
+                   rel_pos::G4Coordinate, coupling_normal,
+                   coupling_pos::G4Coordinate, coupling_width,
+                   model::AbstractString = "",
+                   edge_length = nothing)
     _register!(b, name)
     fiber = _volname(fiber)                          # accept a name or an entry
+    # Validate the model up front so a typo'd alias errors at build time
+    # rather than reaching the C++ side.
+    isempty(model) || sipm_model_info(model)
+    if edge_length === nothing
+        isempty(model) && error("add_sipm!: SiPM '$name' has no `edge_length` " *
+            "and no `model` to derive it from — pass one or the other")
+        edge_length = sipm_edge_length(model)
+    elseif !isempty(model)
+        # Both given: tolerate when they agree (so callers can pass an
+        # unconditional `edge_length` hint alongside `model`); error on
+        # mismatch to catch a die-size typo before it reaches the C++ side.
+        # Compare in mm to accept either unitful or bare-Float64 edge_length.
+        given_mm   = _to_mm(edge_length)
+        derived_mm = _to_mm(sipm_edge_length(model))
+        isapprox(given_mm, derived_mm; rtol=1e-9) ||
+            error("add_sipm!: SiPM '$name' was given edge_length=" *
+                  "$(given_mm) mm but model '$model' has die edge " *
+                  "$(derived_mm) mm — pass only one, or make them agree")
+    end
     entry = SipmEntry(
         name = String(name), ref_volume = rel_pos.ref,
         face_dir = _ntup3(face_dir), rel_pos = rel_pos.pos,
@@ -377,7 +404,8 @@ function add_sipm!(b::ManifestBuilder; name, fiber, face_dir,
         coupling_normal = _ntup3(coupling_normal),
         coupling_pos = coupling_pos.pos,
         coupling_width = _to_mm(coupling_width),
-        fiber_is_base = _sipm_base(coupling_pos.ref, fiber, String(name)))
+        fiber_is_base = _sipm_base(coupling_pos.ref, fiber, String(name)),
+        model = String(model))
     push!(b.placements, entry)
     return entry
 end
