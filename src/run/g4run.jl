@@ -9,9 +9,19 @@
 # via the `manifest` keyword; it is serialised to disk and passed to run.sh as
 # `--manifest <file>` (geometry input is now mandatory).
 
-"""Default G4ScintKit project root (the parent of the G4ScintKit.jl package)."""
-# this file lives at src/run/ — three levels below the G4ScintKit project root.
-_default_projectdir() = dirname(dirname(dirname(@__DIR__)))
+"""
+Default G4ScintKit project root — the directory holding `bash_scripts/` and the
+build, used to locate `setup_paths.sh` + the `g4scint` binary.
+
+Set `G4SCINTKIT_DIR` when `G4ScintKit.jl` is used as a standalone package (added
+via Pkg, so it no longer lives inside the bundle checkout). The fallback assumes
+the in-bundle layout (this file at `<bundle>/G4ScintKit.jl/src/run/`), which is
+correct when developing from the bundle checkout.
+"""
+function _default_projectdir()
+    haskey(ENV, "G4SCINTKIT_DIR") && return ENV["G4SCINTKIT_DIR"]
+    return dirname(dirname(dirname(@__DIR__)))   # <bundle>/G4ScintKit.jl/src/run -> <bundle>
+end
 
 # Resolve a `manifest` argument to a file path.
 #   - `GeometryManifest` -> serialised to `dest`, returns `dest`
