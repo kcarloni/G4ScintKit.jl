@@ -20,6 +20,12 @@ Base.@kwdef struct B3Spec <: DetectorSpec
     aluminum_thickness::LengthQ = 0.0u"mm"
     lead_thickness::LengthQ     = 0.0u"mm"
 
+    # SiPM model. Empty string = the GODDeSS generic photon detector, an
+    # idealised tile sized to the fibre bundle. Set to a `SIPM_MODELS` alias
+    # (e.g. "hamamatsu-s12573-100c") for a realistic g4sipm model, whose die
+    # edge length then replaces the computed one.
+    sipm_model::String = ""
+
     # material abbreviations (resolved against goddess_root)
     goddess_root::String    = default_goddess_root()
     scint_material::String  = "fermilab"
@@ -41,7 +47,10 @@ function G4ScintKit.build_manifest(spec::B3Spec)
     fiber_offcenter_shift = spec.scint_width / 4
 
     sipm_coupling_width = 0.25u"mm"
-    sipm_edge_length    = 2 * fiber_diameter + 1u"mm"
+    # With a g4sipm model the die size comes from the model, so leave the
+    # edge length unset and let add_bundle_sipm! derive it.
+    sipm_edge_length    = spec.sipm_model == "" ?
+                          2 * fiber_diameter + 1u"mm" : nothing
 
     # ---------------------------------------
 
@@ -132,6 +141,7 @@ function G4ScintKit.build_manifest(spec::B3Spec)
         endpoints = endpoints,
         face_dir = sipm_face_dir,
         edge_length = sipm_edge_length,
+        model = spec.sipm_model,
         coupling_width = sipm_coupling_width
     )
 
