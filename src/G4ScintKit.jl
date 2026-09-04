@@ -15,15 +15,12 @@ using StructArrayTables
 # Public surface: `load(outdir)` reads the C++ HDF5 output into a NamedTuple
 # of StructArrays, attaching units and concatenating across runs/files.
 # `h5read(StructArray, file, group)` is the lower-level ad-hoc reader for
-# arbitrary groups; `read_sipm_voltage_trace` is a legacy typed reader kept
-# for compatibility.
+# arbitrary groups.
 include("output/hdf5.jl")
 export h5display, h5read
 include("output/columns.jl")
 include("output/load.jl")
 export load, available_groups, ALL_GROUPS, SimulationOutput
-include("output/read.jl")
-export read_sipm_voltage_trace
 
 # --- geometry: low-level manifest representation ---
 include("geometry/manifest.jl")

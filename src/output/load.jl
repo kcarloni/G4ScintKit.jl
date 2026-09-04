@@ -89,10 +89,10 @@ end
 
 # Per-event waveform columns arrive as an (n_samples x n_events) matrix while
 # every sibling column is a length-n_events vector. StructArray requires all
-# components to share a shape, so split the matrix into one view per event --
-# the same representation read_sipm_voltage_trace produces. Only
-# sipm_voltage_trace.voltages is shaped this way today, but the check is on the
-# shape rather than the name so a future waveform column needs no change here.
+# components to share a shape, so split the matrix into one view per event.
+# Only sipm_voltage_trace.voltages is shaped this way today, but the check is
+# on the shape rather than the name, so a future waveform column needs no
+# change here.
 function _split_matrix_columns(nt::NamedTuple)
     any(v -> v isa AbstractMatrix, values(nt)) || return nt
     vecs = Iterators.filter(v -> v isa AbstractVector, values(nt))
