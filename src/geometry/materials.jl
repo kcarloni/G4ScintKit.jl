@@ -60,11 +60,30 @@ const _CEMENT_FILES = Dict(
     "air1mm" => "air_1mm_fiber.properties",
 )
 
-"""Default GODDESS package root — `goddess-package/` sits beside `G4ScintKit.jl/`."""
-# this file lives at src/geometry/ — three levels below the G4ScintKit project
-# root, where goddess-package/ sits beside the G4ScintKit.jl package.
-default_goddess_root() =
-    normpath(joinpath(@__DIR__, "..", "..", "..", "goddess-package"))
+"""
+    default_goddess_root() -> String
+
+Path to the GODDeSS package root, which is where the material `.properties`
+files are resolved from.
+
+Resolved in order: the `GODDESS` environment variable, then `G4SCINTKIT_DIR`,
+then the in-bundle layout. `GODDESS` is preferred because it is what
+`bash_scripts/setup_paths.sh` exports *and* what the C++ side resolves relative
+manifest material paths against, so one setting configures both layers
+consistently.
+
+Only the final fallback assumes this file sits at
+`<bundle>/G4ScintKit.jl/src/geometry/`, i.e. that the package lives inside the
+bundle checkout. That does not hold when `G4ScintKit.jl` is added through `Pkg`
+(a `[sources]` git URL puts it in the Julia depot, nowhere near a
+`goddess-package/`), which is why the environment variables come first — a
+standalone install must set one of them, or pass `goddess_root` explicitly.
+"""
+function default_goddess_root()
+    haskey(ENV, "GODDESS")        && return ENV["GODDESS"]
+    haskey(ENV, "G4SCINTKIT_DIR") && return joinpath(ENV["G4SCINTKIT_DIR"], "goddess-package")
+    return normpath(joinpath(@__DIR__, "..", "..", "..", "goddess-package"))
+end
 
 # Resolve a material abbreviation to the absolute .properties path, matching
 # the path run.sh builds: <goddess>/source/MaterialProperties/<subdir>/<file>.
