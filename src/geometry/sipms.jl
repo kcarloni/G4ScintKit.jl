@@ -41,14 +41,21 @@ Base.@kwdef struct SipmModelInfo
     edge_length::LengthQ
     factory::Symbol
     properties_file::String = ""
+
+    # Unit convention of this model's voltage trace. `:volt` -- the trace is a
+    # real voltage. `:photoelectron` -- it is normalised to 1.0 per fired cell
+    # and carries no voltage scale; see the note on the S12573 entries below.
+    trace_units::Symbol = :volt
 end
 
 # Construct a `:builtin` entry, deriving edge_length from cell_pitch * sqrt(n_cells).
-_builtin(cell_pitch::LengthQ, n_cells::Integer) = SipmModelInfo(
-    cell_pitch  = cell_pitch,
-    n_cells     = Int(n_cells),
-    edge_length = cell_pitch * sqrt(n_cells),
-    factory     = :builtin)
+_builtin(cell_pitch::LengthQ, n_cells::Integer; trace_units::Symbol = :volt) =
+    SipmModelInfo(
+        cell_pitch  = cell_pitch,
+        n_cells     = Int(n_cells),
+        edge_length = cell_pitch * sqrt(n_cells),
+        factory     = :builtin,
+        trace_units = trace_units)
 
 """
     SIPM_MODELS :: Dict{String, SipmModelInfo}
@@ -69,8 +76,17 @@ const SIPM_MODELS = Dict{String, SipmModelInfo}(
     "hamamatsu-s10362-33-100c" => _builtin(0.1u"mm",    900),  # 3×3 mm
     "hamamatsu-s10362-33-050c" => _builtin(0.05u"mm", 3600),   # 3×3 mm
     "hamamatsu-s12651-050"     => _builtin(0.05u"mm",  400),   # 1×1 mm
-    "hamamatsu-s12573-100c"    => _builtin(0.1u"mm",  3600),   # 6×6 mm
-    "hamamatsu-s12573-100x"    => _builtin(0.1u"mm",  3600),   # 6×6 mm
+    # These two are the only models whose voltage trace is NOT a voltage:
+    # upstream g4sipm gives them their own nested VoltageTraceModel returning
+    # bare numbers (amplitude 1.0, v0 0.0, noise sigma 0.01) with no CLHEP::volt
+    # scaling, unlike every other model, which shares
+    # G4SipmGenericVoltageTraceModel (50 mV / 25 mV / 1 mV). The C++ writer
+    # divides the trace by CLHEP::volt as it does every other quantity, which
+    # for these two inflates a per-photoelectron amplitude by 1e6. `load` undoes
+    # that -- see the voltage-trace section of output/load.jl. Everything else
+    # about these models (hits, digi summary, PDE, cell count) is correct.
+    "hamamatsu-s12573-100c"    => _builtin(0.1u"mm",  3600; trace_units = :photoelectron),   # 6×6 mm
+    "hamamatsu-s12573-100x"    => _builtin(0.1u"mm",  3600; trace_units = :photoelectron),   # 6×6 mm
 )
 
 """

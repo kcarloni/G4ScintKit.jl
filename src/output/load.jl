@@ -87,13 +87,35 @@ function _run_groups(f::HDF5.File)
     names
 end
 
+# Per-event waveform columns arrive as an (n_samples x n_events) matrix while
+# every sibling column is a length-n_events vector. StructArray requires all
+# components to share a shape, so split the matrix into one view per event --
+# the same representation read_sipm_voltage_trace produces. Only
+# sipm_voltage_trace.voltages is shaped this way today, but the check is on the
+# shape rather than the name so a future waveform column needs no change here.
+function _split_matrix_columns(nt::NamedTuple)
+    any(v -> v isa AbstractMatrix, values(nt)) || return nt
+    vecs = Iterators.filter(v -> v isa AbstractVector, values(nt))
+    isempty(collect(Iterators.take(vecs, 1))) &&
+        error("load: group has a matrix column but no vector column to give " *
+              "the event count")
+    n = length(first(vecs))
+    return map(nt) do v
+        v isa AbstractMatrix || return v
+        size(v, 2) == n || error(
+            "load: waveform column has $(size(v, 2)) columns but the group " *
+            "has $n events; expected (n_samples x n_events)")
+        return [view(v, :, i) for i in 1:n]
+    end
+end
+
 # Build the cleaned StructArray for one group under one run, adding a
 # `run_id` column. Returns `nothing` if the group is absent in this run.
 function _read_one_run_group(run_g::HDF5.Group, gname::Symbol, run_id::Int)
     skey = String(gname)
     haskey(run_g, skey) || return nothing
     raw = _group_to_namedtuple(run_g[skey])
-    cleaned = _clean_columns(raw)
+    cleaned = _split_matrix_columns(_clean_columns(raw))
     n = length(first(values(cleaned)))
     sa = StructArray(merge(cleaned, (run_id = fill(run_id, n),)))
     return sa
@@ -108,6 +130,94 @@ function _vcat_sas(sas::Vector)
         append!(out, sas[i])
     end
     return out
+end
+
+
+# ---------------------------------------------------------------------------
+#  Voltage-trace units
+# ---------------------------------------------------------------------------
+#
+# `sipm_voltage_trace` is the one group whose units depend on which g4sipm model
+# produced it, so it gets handled here rather than inside the generic reader.
+#
+# Every g4sipm model but two builds its trace from G4SipmGenericVoltageTraceModel,
+# whose amplitude/baseline/noise are real voltages (50 mV / 25 mV / 1 mV, each
+# scaled by CLHEP::volt). HamamatsuS12573100C and ...100X instead define their own
+# nested VoltageTraceModel returning bare numbers -- amplitude 1.0, v0 0.0, noise
+# sigma 0.01 -- normalised to one fired cell, with no voltage scale at all. That is
+# upstream g4sipm behaviour, present since its initial commit.
+#
+# The C++ writer divides the trace by CLHEP::volt exactly as it does every other
+# quantity, which is right for the first group and, for the other two, inflates a
+# per-photoelectron amplitude by 1/CLHEP::volt = 1e6. Nothing is lost: the stored
+# value is exactly photoelectrons * 1e6, so the scaling below is exact rather than
+# approximate.
+#
+# The model is not recorded in the HDF5, but RunSimulation.cc dumps the manifest it
+# actually built from to <Data>/geometry.manifest on every run, so the SIPM lines
+# there are the authority. When that cannot be resolved we drop the unit rather
+# than guess -- a number labelled volts that is not a voltage is worse than a bare
+# number.
+
+const _PE_PER_STORED_UNIT = 1e-6
+
+# Path to the manifest the C++ dumped beside the data, or `nothing`.
+function _manifest_beside(path::AbstractString)
+    dir = if isfile(path)
+        dirname(path)
+    elseif isdir(path)
+        isdir(joinpath(path, "Data")) ? joinpath(path, "Data") : path
+    else
+        return nothing
+    end
+    mf = joinpath(dir, "geometry.manifest")
+    return isfile(mf) ? mf : nothing
+end
+
+# Model aliases named on the manifest's SIPM lines. A SIPM line with no `model=`
+# is a GODDeSS photon detector, which produces no g4sipm trace at all.
+function _manifest_sipm_models(manifest::AbstractString)
+    models = String[]
+    for line in eachline(manifest)
+        startswith(line, "SIPM") || continue
+        m = match(r"(?:^|\s)model=(\S+)", line)
+        m === nothing || push!(models, String(m.captures[1]))
+    end
+    return models
+end
+
+# :volt, :photoelectron, :mixed (SiPMs disagree) or :unknown (no manifest, no
+# g4sipm SiPM in it, or an alias this package does not know).
+function _trace_units(path::AbstractString)
+    mf = _manifest_beside(path)
+    mf === nothing && return :unknown
+    models = _manifest_sipm_models(mf)
+    isempty(models) && return :unknown
+    infos = [get(SIPM_MODELS, a, nothing) for a in models]
+    any(i -> i === nothing, infos) && return :unknown
+    units = unique(i.trace_units for i in infos)
+    return length(units) == 1 ? only(units) : :mixed
+end
+
+# Rescale/relabel the `voltages` column of a sipm_voltage_trace StructArray.
+# Values arrive carrying u"V" from _clean_columns; that is correct only for
+# :volt models.
+function _rescale_voltage_trace(sa, path::AbstractString)
+    units = _trace_units(path)
+    units === :volt && return sa
+    cols = NamedTuple(k => getproperty(sa, k) for k in propertynames(sa))
+    haskey(cols, :voltages) || return sa
+    bare = [ustrip.(u"V", t) for t in cols.voltages]
+    if units === :photoelectron
+        @info "load: SiPM model reports its voltage trace per photoelectron, " *
+              "not as a voltage; `voltages` is in photoelectrons (dimensionless)."
+        bare = [t .* _PE_PER_STORED_UNIT for t in bare]
+    else
+        @warn "load: could not determine the SiPM model for this output " *
+              "($(units)), so the voltage trace unit is unknown; returning " *
+              "`voltages` as stored, without a unit."
+    end
+    return StructArray(merge(cols, (voltages = bare,)))
 end
 
 """
@@ -128,6 +238,13 @@ Numeric columns whose HDF5 name ends in a unit suffix (`_mm`, `_MeV`,
 `_ns`, `_V`, …) have the suffix stripped and the corresponding `Unitful`
 unit attached. Suffix-less columns (ints, dimensionless doubles) pass
 through unchanged.
+
+`sipm_voltage_trace.voltages` is a special case. Most g4sipm models report a
+real voltage there and it carries `u"V"`, but `hamamatsu-s12573-100c`/`-100x`
+normalise their trace to one photoelectron instead, so for those it is rescaled
+and returned dimensionless, in photoelectrons. The model is read from the
+`geometry.manifest` the C++ writes beside the data; if that is missing the unit
+is dropped rather than guessed, with a warning.
 
 `groups` selects which subgroups to read; defaults to all known names
 (see `ALL_GROUPS`). Groups that don't appear in any run are simply omitted
@@ -164,7 +281,9 @@ function load(path::AbstractString; groups = ALL_GROUPS)
     pairs = Pair{Symbol, Any}[]
     for g in groups
         v = _vcat_sas(bins[g])
-        v === nothing || push!(pairs, g => v)
+        v === nothing && continue
+        g === :sipm_voltage_trace && (v = _rescale_voltage_trace(v, path))
+        push!(pairs, g => v)
     end
     SimulationOutput(NamedTuple{Tuple(first.(pairs))}(Tuple(last.(pairs))))
 end
