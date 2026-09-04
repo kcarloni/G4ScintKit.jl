@@ -204,7 +204,21 @@ function _require_no_space(value::AbstractString, field::AbstractString)
     end
 end
 
-function _write_entry(io::IO, s::ScintEntry)
+# Material paths are stored absolute (Julia opens the .properties files to read
+# fibre cross-sections), but are *written* relative to the GODDESS package root
+# whenever they live under it. A relative manifest is portable between machines
+# — the C++ side resolves it against $GODDESS at the point of use — which is
+# what makes a manifest safe to check into version control and share. Paths
+# outside `root` (a non-standard goddess_root, say) are left absolute, since
+# $GODDESS would resolve them somewhere else entirely.
+function _material_path(path::AbstractString, root::Union{Nothing,AbstractString})
+    (root === nothing || isempty(path)) && return path
+    isabspath(path) || return path
+    rel = relpath(path, root)
+    return startswith(rel, "..") ? path : rel
+end
+
+function _write_entry(io::IO, s::ScintEntry, root=nothing)
     _require_no_space(s.name, "name")
     _require_no_space(s.g4name, "g4name")
     _require_no_space(s.mother, "mother")
@@ -216,12 +230,12 @@ function _write_entry(io::IO, s::ScintEntry)
         " pos=", _vecstr(s.pos),
         " rot=", _rotstr(s.rot),
         " mother=", s.mother,
-        " material=", s.material_file,
+        " material=", _material_path(s.material_file, root),
         " sensitive=", _boolstr(s.sensitive),
         "\n")
 end
 
-function _write_entry(io::IO, f::FiberEntry)
+function _write_entry(io::IO, f::FiberEntry, root=nothing)
     _require_no_space(f.name, "name")
     _require_no_space(f.mother, "mother")
     _require_no_space(f.reference, "reference")
@@ -236,10 +250,10 @@ function _write_entry(io::IO, f::FiberEntry)
         " end=", _vecstr(f.stop),
         " bend_angle=", _numstr(f.bend_angle),
         " bend_axis=", _vecstr(f.bend_axis),
-        " material=", f.material_file,
+        " material=", _material_path(f.material_file, root),
         " reference=", f.reference,
         " glued=", _boolstr(f.glued),
-        " glue_file=", f.glue_file,
+        " glue_file=", _material_path(f.glue_file, root),
         " glue_profile=", f.glue_profile)
     # Conditionally emitted: defaults are NaN ("not called"); omitting at
     # default keeps existing baselines stable while letting new designs
@@ -255,7 +269,7 @@ function _write_entry(io::IO, f::FiberEntry)
         "\n")
 end
 
-function _write_entry(io::IO, w::WrapEntry)
+function _write_entry(io::IO, w::WrapEntry, root=nothing)
     _require_no_space(w.scint, "scint")
     _require_no_space(w.g4name, "g4name")
     _require_no_space(w.material_file, "material")
@@ -265,12 +279,12 @@ function _write_entry(io::IO, w::WrapEntry)
     print(io, "WRAP",
         " scint=", w.scint,
         " g4name=", w.g4name,
-        " material=", w.material_file,
+        " material=", _material_path(w.material_file, root),
         " cut=", _liststr(w.cut),
         "\n")
 end
 
-function _write_entry(io::IO, sp::SipmEntry)
+function _write_entry(io::IO, sp::SipmEntry, root=nothing)
     _require_no_space(sp.name, "name")
     _require_no_space(sp.ref_volume, "ref_volume")
     _require_no_space(sp.fiber, "fiber")
@@ -292,7 +306,7 @@ function _write_entry(io::IO, sp::SipmEntry)
     print(io, "\n")
 end
 
-function _write_entry(io::IO, c::CasingSpec)
+function _write_entry(io::IO, c::CasingSpec, root=nothing)
     print(io, "CASING",
         " module_half_x=", _numstr(c.module_half_x),
         " module_min_y=", _numstr(c.module_min_y),
@@ -307,29 +321,41 @@ function _write_entry(io::IO, c::CasingSpec)
 end
 
 """
-    write_manifest(path::AbstractString, manifest::GeometryManifest) -> path
-    write_manifest(io::IO, manifest::GeometryManifest)
+    write_manifest(path::AbstractString, manifest::GeometryManifest; goddess_root) -> path
+    write_manifest(io::IO, manifest::GeometryManifest; goddess_root)
 
 Serialise `manifest` in the exact `ManifestFile` text format that the C++
 `DetectorConstruction` reads via `--manifest`. The output is byte-for-byte
 identical to a C++ `ManifestFile::Write` of the same geometry.
 
+Material paths that live under `goddess_root` (default
+[`default_goddess_root`](@ref)) are written *relative* to it, e.g.
+`source/MaterialProperties/Scintillator/Fermilab_scintillator.properties`. That
+makes the manifest portable — the C++ side resolves such paths against
+`\$GODDESS`, which `bash_scripts/setup_paths.sh` exports — so it can be checked
+into version control and shared. Pass `goddess_root = nothing` to force
+absolute paths instead. Paths outside `goddess_root` are always left absolute.
+
 The path-based form returns `path` (convenient for chaining); the `IO` form
 returns `nothing`.
 """
-function write_manifest(path::AbstractString, m::GeometryManifest)
-    open(io -> write_manifest(io, m), path, "w")
+function write_manifest(path::AbstractString, m::GeometryManifest;
+                        goddess_root = default_goddess_root())
+    open(io -> write_manifest(io, m; goddess_root), path, "w")
     return path
 end
 
-function write_manifest(io::IO, m::GeometryManifest)
+function write_manifest(io::IO, m::GeometryManifest;
+                        goddess_root = default_goddess_root())
+    root = goddess_root === nothing ? nothing : abspath(goddess_root)
     print(io, "# G4ScintKit geometry manifest\n")
     print(io, "# units: Geant4 internal (mm, radian)\n")
     print(io, "# SCINT/FIBER/WRAP/SIPM lines, in file order, are the placement order\n")
+    print(io, "# material paths are relative to the GODDESS package root (\$GODDESS)\n")
     isempty(m.setup_label) || print(io, "SETUP ", m.setup_label, "\n")
     for p in m.placements
-        _write_entry(io, p)
+        _write_entry(io, p, root)
     end
-    _write_entry(io, m.casing)
+    _write_entry(io, m.casing, root)
     return nothing
 end
